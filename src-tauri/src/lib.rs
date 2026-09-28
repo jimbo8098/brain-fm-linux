@@ -10,7 +10,13 @@ use tauri::{
 };
 
 const BRAIN_FM_URL: &str = "https://my.brain.fm";
-const UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 BrainFmDesktop";
+// A UA that claims to be Chrome but is served by WebKitGTK (which never sends
+// Chrome's Sec-CH-UA client hints) is a mismatch Google's OAuth risk engine
+// uses to flag embedded/spoofed browsers ("This browser or app may not be
+// secure"). Advertise a real macOS Safari UA instead: it's honest about the
+// WebKit engine underneath and isn't treated as an embedded webview by
+// Google's login flow, so "Sign in with Google" works.
+const UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15";
 
 /// Snapshot of the player pushed from the webview to the MPRIS thread.
 struct NowPlaying {
@@ -222,6 +228,14 @@ pub fn run() {
             // denies the popup and the login silently fails. Allowing it makes
             // wry open the popup as a *related* WebKitGTK view that shares the
             // cookie/session store, so the login propagates back to the app.
+            //
+            // Building the popup ourselves via `NewWindowResponse::Create` (to
+            // control its size / auto-close) crashes: webkit2gtk's
+            // `create-web-view` handling unwraps an `Option<WindowFeatures>`
+            // that's unset for Google's GIS popup (it opens via
+            // `display=popup` with no explicit width/height), hitting an
+            // assertion failure in WebKitGTK itself. `Allow` sidesteps that
+            // broken path entirely.
             .on_new_window(|url, _features| {
                 eprintln!("[brain-fm] popup requested: {url}");
                 NewWindowResponse::Allow
